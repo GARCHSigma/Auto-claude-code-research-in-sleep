@@ -1,5 +1,32 @@
 # ARIS-Code Changelog
 
+## v0.4.7 (2026-05-16)
+
+A community-driven release. [@GetIT-Sunday](https://github.com/GetIT-Sunday) followed through on the v0.4.5 commitment to land DashScope Coding Plan support and added a nice reasoning-content generalization on top of v0.4.5's `reasoning_effort='xhigh'` work. Bundled with a sweep of pre-rename dead code and a legacy branding cleanup.
+
+### Fix
+
+- **DashScope Coding Plan returning 405 ([#159](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/issues/159))** — Switched reqwest's TLS backend from `rustls-tls` to `native-tls` for the `api` and `aris-cli` crates, plus added a DashScope Coding Plan endpoint hint in `/setup`. `native-tls` uses platform TLS (SecureTransport on macOS, OpenSSL on Linux, SChannel on Windows), which DashScope's Coding Plan endpoint accepts where rustls did not. Credit [@GetIT-Sunday](https://github.com/GetIT-Sunday) ([#225](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/225)).
+- **Hardcoded `user_agent("aris/0.4.5")` follow-up** — Now derived from `CARGO_PKG_VERSION` at build time so it tracks the binary version automatically.
+
+### New
+
+- **`reasoning_content` replay for all reasoning-capable providers**, not just Kimi — Previously the assistant-message replay cache that preserves multi-turn reasoning traces was gated behind an `is_kimi` check. Generalized so OpenAI o1/o3/o4-family, DeepSeek-R1, and any future reasoning model that returns `reasoning_content` keeps its chain-of-thought visible across turns. Pairs with v0.4.5's `reasoning_effort='xhigh'` (request-side) — together they make multi-turn reasoning conversations actually coherent. Credit [@GetIT-Sunday](https://github.com/GetIT-Sunday) ([#226](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/226)).
+
+### Cleanup / removed
+
+- **Dead-code removal**: `crates/runtime/src/sse.rs` (128-line generic SSE parser never wired in — `runtime/lib.rs` had no `mod sse`), `crates/aris-cli/src/app.rs` + `crates/aris-cli/src/args.rs` (398 + 108 lines of `rusty-claude-cli` prototype code with no references). Each verified by Codex audit before deletion (zero workspace references).
+- **Dropped unused `rustyline = "15"` dependency** from `aris-cli/Cargo.toml`. The interactive editor in `input.rs` has used `crossterm` for several versions; the rustyline crate was scaffolding never consumed.
+- **User-facing "Claw Code" → "ARIS-Code" rebranding** in three strings the user actually sees: the `.gitignore` section title written by `aris init`, the `CLAUDE.md` template body line, and the `Config` tool description (LLM-visible). Deliberately did **not** rename `CLAWD_*` env vars, the `claw-code-guide` subagent type string, or the `compat-harness` upstream vendor paths — those are API surface and need a separate v0.5.0 transition with `ARIS_*` aliases.
+
+### Docs
+
+- `compat-harness` crate header doc clarifying it is a static manifest extractor (driven by `aris dump-manifests`), not a runtime regression harness.
+
+### Credits
+
+- [@GetIT-Sunday](https://github.com/GetIT-Sunday) — native-tls for DashScope Coding Plan ([#225](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/225)) + reasoning_content for all providers ([#226](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/226)) — second contribution after the v0.4.5 Xiaomi/Qwen/Doubao cherry-pick
+
 ## v0.4.6 (2026-05-14)
 
 A small but high-impact follow-up to v0.4.5. Two critical fixes that were
