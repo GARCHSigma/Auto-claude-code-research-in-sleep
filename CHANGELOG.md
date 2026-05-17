@@ -1,5 +1,127 @@
 # ARIS-Code Changelog
 
+## v0.4.10 (2026-05-17)
+
+The stream + MCP reliability release. Closes three classes of stalls
+and degraded UX users reported against v0.4.8 and v0.4.9: the
+`#228`-style "error decoding response body" mid-stream loop, the
+`#151` / `#172` "Calling codex..." MCP hangs, and silently inaccurate
+cache / cost reporting after v0.4.5+ when more providers were added.
+
+### 🚨 Fix (streaming reliability — C6)
+
+- **Whole-stream restart on chunk abort / premature EOF** —
+  `MessageStream::next_event` (Anthropic) and the OpenAI executor's
+  SSE loop now both detect (a) chunk decode failure mid-flight and
+  (b) Ok(None) before any terminal sentinel (`MessageStop` /
+  `[DONE]`), and restart the *whole request* from scratch. Restart
+  budget is `ARIS_STREAM_RETRY` (default 2, clamped 0..=5 via
+  `u32.min(5) as u8`), and only fires when `events_emitted == 0` so
+  the user never sees torn output. Backoff is 500 ms between
+  attempts. `stream_chunk_error_is_retryable()` predicate gates on
+  `is_request / is_connect / is_timeout / is_body / is_decode`.
+
+### 🚨 Fix (MCP stdio reliability — M3)
+
+- **Default 300 s read timeout via `tokio::time::timeout`** wrapping
+  both `send_request` and `read_response`. Override via
+  `MCP_REQUEST_TIMEOUT_SECS` env, clamped to 1..=1800 s. Default
+  raised from the codex-audit-suggested 60 s to 300 s because the
+  most common MCP servers users wire in are agent-style (codex,
+  oracle) and 60-180 s of model think time before the first
+  response byte is normal.
+- **`response.id ↔ request.id` correlation check**. Mismatch returns
+  `InvalidData` and kills the child so the connection respawns
+  clean.
+- **Dead-process detection in `ensure_server_ready()`** via
+  `try_wait()`. Crashed / OOM-killed / timed-out MCP servers are
+  transparently respawned on the next call instead of stalling on a
+  dead pipe.
+- **All failure paths use `kill().await`** (not `start_kill()`) so
+  the child is reaped, no zombie window where the manager could see
+  `Ok(None)` from `try_wait` and reuse a poisoned pipe.
+- 3 new regression tests:
+  `rejects_response_with_mismatched_id`,
+  `times_out_when_server_does_not_respond`,
+  `manager_respawns_dead_server_on_next_discovery`.
+- Known limitation deferred to v0.4.11: server-initiated JSON-RPC
+  notifications (`notifications/log`, `notifications/progress`)
+  are currently treated as invalid responses; a read loop that
+  skips frames without an `id` until the correlated response
+  arrives is the v0.4.11 follow-up.
+
+### 🚨 Fix (cache token accounting — C8 / P4)
+
+- **OpenAI streaming requests** now include
+  `stream_options: { include_usage: true }`. Without this the SSE
+  default omits the usage block entirely. The chunk parser now
+  reads `prompt_tokens_details.cached_tokens` and routes it to
+  `cache_read_input_tokens` so REPL prompt-cache reporting works
+  for gpt-5.5 / gpt-5.4 / -mini.
+- **Anthropic streaming** stashes `MessageStart.message.usage`
+  (carries `input_tokens` + `cache_read_input_tokens` +
+  `cache_creation_input_tokens`) and merges it with
+  `MessageDelta.usage.output_tokens` at end-of-stream. Previously
+  only the delta was read, so the input/cache halves were silently
+  dropped.
+- `Usage` struct fields are now `#[serde(default)]` so Anthropic's
+  partial usage payloads (e.g. delta carrying only output) parse
+  cleanly without losing the surrounding event.
+
+### ✨ Feature (multi-provider pricing registry — C9)
+
+`pricing_for_model()` extended from "Sonnet + Opus default" to a
+full registry:
+
+- **OpenAI**: gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.4-nano,
+  gpt-4o, gpt-4o-mini, o1, o3, o4 — cache_read = input × 0.1
+  per the actual OpenAI prefix-cache discount (previously the
+  generic fallback used 50%, overstating savings 5×).
+- **Gemini**: 2.5-pro, 2.5-flash, 2.0-flash.
+- **DeepSeek**: V3 / V4 (cache_read 0.07) and R1 / reasoner
+  (cache_read 0.14), with explicit cache-hit vs cache-miss tiers
+  per DeepSeek's published rates.
+- **OSS / regional**: GLM, MiniMax, Kimi / Moonshot, MiMo, Qwen,
+  Doubao.
+- `has_word()` boundary matcher treats `-_/:` as word boundaries
+  so `openai/o3-mini`, `provider/gpt-5.5-turbo`, and
+  `anthropic-compat/claude-sonnet-4.5` route to the right tier.
+- Helpers `openai_pricing(input, output)` and `generic_pricing()`
+  factor out the common cache-read tier maths.
+
+### 🧹 Cleanup
+
+- **Nine dead-code warnings cleared** across the workspace:
+  `aris setup` removed `run_setup()` + `configure_codex_mcp()`
+  (these advertised "install skills, configure MCP" but only
+  routed to `config::run_interactive_setup`); deleted
+  `has_executor_key()`, `buf_display_width()`,
+  `chat_completions_url()`; renamed `error` → `_error` in
+  `runtime::config` legacy branch.
+- **`aris setup` user-facing strings** synced with actual
+  behaviour: help text now says "Configure API keys / model /
+  language (interactive)" and doctor's MCP-not-configured branch
+  points users at `~/.claude.json` direct edit or
+  `claude mcp add`.
+- `cargo fmt` over the seven v0.4.10-touched files (other
+  baseline drift left alone so this release stays scoped).
+
+### 🧪 Tests
+
+- `cargo test -p runtime --lib mcp_stdio --test-threads=1`: 16
+  passing (13 pre-existing + 3 M3 regressions).
+- Pre-existing macOS-only `api` crate `PoisonError` test residuals
+  are unchanged (Linux CI clean).
+
+### 📐 Cross-model review
+
+Codex MCP (gpt-5.5 xhigh) reviewed every step plus a final
+`v0.4.9..HEAD` cross-cutting audit. Verdict: READY TO SHIP.
+Four P1 follow-ups (Anthropic retry coverage, o-series
+reasoning-effort detection, `stream_options` proxy fallback,
+per-server MCP timeout) and one P2 (pricing substring matchers)
+are captured in `idea-stage/v0.4.10/v0.4.11_followups.md`.
+
 ## v0.4.9 (2026-05-17)
 
 The "v0.4.8 second half" release — closes the three Codex v0.4.7
