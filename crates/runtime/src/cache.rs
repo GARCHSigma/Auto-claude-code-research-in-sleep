@@ -332,4 +332,61 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    /// v0.4.9 T29: every bundle key cited inside a bundled SKILL.md prose
+    /// must resolve to an actual entry in BUNDLED_RESOURCES. Guards against
+    /// the H6 regression where SKILL.md `python3 tools/foo.py` references
+    /// silently 404'd because foo.py was never bundled.
+    ///
+    /// Detection rule (deliberately narrow to avoid false positives from
+    /// prose mentions): we match the runtime-injected `$ARIS_CACHE_DIR/`
+    /// substitution pattern that v0.4.8+ SKILL.md migrations use, and we
+    /// match unprefixed `python3 tools/<helper>` literals that survived
+    /// from the v0.4.7 era. shared-references/* doesn't need direct
+    /// invocation references; templates/ are read via fs paths not exec.
+    #[test]
+    fn bundle_inventory_skill_md_refs_resolve_to_bundled_resources() {
+        use regex::Regex;
+        let bundled_keys: std::collections::HashSet<&'static str> =
+            crate::BUNDLED_RESOURCES.iter().map(|(k, _)| *k).collect();
+
+        // Match either:
+        //   "$ARIS_CACHE_DIR/<key>" or "${ARIS_CACHE_DIR:-.}/<key>"
+        //   bare "tools/<helper>.{py,sh}" (legacy literal still in some SKILLs)
+        let cache_re = Regex::new(
+            r#"\$\{?ARIS_CACHE_DIR(?::-[^}]*)?\}?/((?:tools|skills/[a-zA-Z0-9_-]+|shared-references)/[a-zA-Z0-9_./-]+\.(?:py|sh|tex|cls|bst|md|toml|yaml|yml|json))"#,
+        )
+        .expect("compile cache_re");
+        let legacy_re = Regex::new(
+            r#"(?m)\bpython3\s+(?:"|)?(tools/[a-zA-Z0-9_./-]+\.(?:py|sh))(?:"|)?"#,
+        )
+        .expect("compile legacy_re");
+
+        let mut missing: Vec<(String, String)> = Vec::new();
+        for (skill_name, content) in crate::BUNDLED_SKILLS {
+            for cap in cache_re.captures_iter(content) {
+                let key = &cap[1];
+                if !bundled_keys.contains(key) {
+                    missing.push((skill_name.to_string(), key.to_string()));
+                }
+            }
+            for cap in legacy_re.captures_iter(content) {
+                let key = &cap[1];
+                if !bundled_keys.contains(key) {
+                    missing.push((skill_name.to_string(), key.to_string()));
+                }
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "SKILL.md references {} bundle key(s) that are NOT in BUNDLED_RESOURCES:\n{}",
+            missing.len(),
+            missing
+                .iter()
+                .map(|(s, k)| format!("  /{s}: {k}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
 }
