@@ -2,6 +2,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Cache control marker for Anthropic prompt caching.
+///
+/// Reserved for the v0.4.10 T35 work (OpenAI `cache_control` on system
+/// prompt) — declared here so the schema stays consistent across both
+/// providers. Currently unconstructed; `#[allow(dead_code)]` until T35
+/// wires up the actual sender.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CacheControl {
     #[serde(rename = "type")]
@@ -11,6 +17,7 @@ pub struct CacheControl {
     pub ttl: Option<String>,
 }
 
+#[allow(dead_code)]
 impl CacheControl {
     /// Create an ephemeral cache control with 1-hour TTL.
     #[must_use]
@@ -22,7 +29,9 @@ impl CacheControl {
     }
 }
 
-/// A system prompt block with optional cache control.
+/// A system prompt block with optional cache control. Reserved for
+/// the v0.4.10 T35 work — see [`CacheControl`].
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SystemBlock {

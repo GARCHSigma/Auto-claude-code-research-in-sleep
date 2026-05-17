@@ -4572,7 +4572,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         out,
         "      Inspect or maintain a saved session without entering the REPL"
     )?;
-    writeln!(out, "  aris setup                                          Initialize ARIS (install skills, configure MCP)")?;
+    writeln!(out, "  aris setup                                          Configure API keys / model / language (interactive)")?;
     writeln!(out, "  aris doctor                                         Health check")?;
     writeln!(out, "  aris dump-manifests")?;
     writeln!(out, "  aris bootstrap-plan")?;
@@ -4687,106 +4687,6 @@ fn check_auth_status() -> &'static str {
     "NOT FOUND"
 }
 
-fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
-    println!("ARIS Setup v{VERSION}");
-    println!();
-
-    // Step 1: Check API auth
-    let auth_status = check_auth_status();
-    println!("  [1/3] API auth:    {auth_status}");
-    if auth_status == "NOT FOUND" {
-        println!("        Run `aris login` or set ANTHROPIC_API_KEY");
-    }
-
-    // Step 2: Ensure skills directory exists
-    let skills_dir = dirs_claude_skills();
-    print!("  [2/3] Skills:      ");
-    if !skills_dir.exists() {
-        fs::create_dir_all(&skills_dir)?;
-    }
-    let skill_count = fs::read_dir(&skills_dir)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .filter(|e| e.path().join("SKILL.md").exists())
-                .count()
-        })
-        .unwrap_or(0);
-    println!("{skill_count} skills in {}", skills_dir.display());
-
-    // Step 3: Configure Codex MCP
-    print!("  [3/3] Codex MCP:   ");
-    match which_codex() {
-        Some(codex_path) => {
-            println!("codex found at {}", codex_path.display());
-            // Try to add Codex MCP to ~/.claude.json
-            match configure_codex_mcp(&codex_path) {
-                Ok(true) => println!("        Added Codex MCP to ~/.claude.json"),
-                Ok(false) => println!("        Codex MCP already configured"),
-                Err(e) => println!("        Warning: could not configure MCP: {e}"),
-            }
-        }
-        None => {
-            println!("NOT FOUND");
-            println!("        Install with: npm install -g @openai/codex");
-            println!("        Then re-run `aris setup` to configure MCP");
-        }
-    }
-
-    println!();
-    println!("Setup complete. Run `aris doctor` to verify.");
-    Ok(())
-}
-
-/// Add Codex MCP server entry to ~/.claude.json if not already present.
-/// Returns Ok(true) if added, Ok(false) if already exists.
-fn configure_codex_mcp(codex_path: &Path) -> Result<bool, Box<dyn std::error::Error>> {
-    let home = Ok::<String, std::env::VarError>(runtime::home_dir())?;
-    let config_path = PathBuf::from(&home).join(".claude.json");
-
-    // Read existing config or start fresh
-    let mut config: serde_json::Value = if config_path.exists() {
-        let content = fs::read_to_string(&config_path)?;
-        serde_json::from_str(&content)?
-    } else {
-        serde_json::json!({})
-    };
-
-    // Check if codex MCP already configured
-    if let Some(servers) = config.get("mcpServers").and_then(|s| s.as_object()) {
-        if servers.contains_key("codex") {
-            return Ok(false);
-        }
-    }
-
-    // Add codex MCP entry with absolute path
-    let mcp_entry = serde_json::json!({
-        "type": "stdio",
-        "command": codex_path.to_string_lossy(),
-        "args": ["mcp-server"]
-    });
-
-    if let Some(obj) = config.as_object_mut() {
-        let servers = obj
-            .entry("mcpServers")
-            .or_insert_with(|| serde_json::json!({}));
-        if let Some(servers_obj) = servers.as_object_mut() {
-            servers_obj.insert("codex".to_string(), mcp_entry);
-        }
-    }
-
-    // Atomic write: write to temp file then rename
-    let tmp_path = config_path.with_extension("json.tmp");
-    fs::write(&tmp_path, serde_json::to_string_pretty(&config)?)?;
-    // Windows fs::rename fails if target exists — remove first
-    if config_path.exists() {
-        let _ = fs::remove_file(&config_path);
-    }
-    fs::rename(&tmp_path, &config_path)?;
-
-    Ok(true)
-}
-
 fn run_doctor() -> Result<(), Box<dyn std::error::Error>> {
     println!("ARIS Doctor v{VERSION}");
     println!();
@@ -4881,7 +4781,7 @@ fn run_doctor() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     println!("OK (configured in ~/.claude.json)");
                 } else {
-                    println!("NOT CONFIGURED (run `aris setup`)");
+                    println!("NOT CONFIGURED (edit ~/.claude.json by hand or via Claude Code's own `claude mcp add`)");
                 }
             } else {
                 println!("ERROR (invalid ~/.claude.json)");
@@ -4897,7 +4797,7 @@ fn run_doctor() -> Result<(), Box<dyn std::error::Error>> {
     if all_ok {
         println!("All checks passed.");
     } else {
-        println!("Some checks failed. Run `aris setup` to fix.");
+        println!("Some checks failed. Run `aris setup` to (re)configure API keys/models, or fix the items above manually.");
     }
     Ok(())
 }

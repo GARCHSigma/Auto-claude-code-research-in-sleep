@@ -850,11 +850,6 @@ fn char_width(ch: char) -> usize {
     }
 }
 
-/// Display width of chars in buf up to position `pos`.
-fn buf_display_width(buf: &[char], pos: usize) -> usize {
-    buf[..pos].iter().map(|c| char_width(*c)).sum()
-}
-
 fn clip(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();

@@ -41,10 +41,6 @@ pub fn normalize_openai_base_url(base_url: &str) -> String {
     without_models.trim_end_matches('/').to_string()
 }
 
-pub fn chat_completions_url(base_url: &str) -> String {
-    format!("{}/chat/completions", normalize_openai_base_url(base_url))
-}
-
 pub fn models_url(base_url: &str) -> String {
     format!("{}/models", normalize_openai_base_url(base_url))
 }

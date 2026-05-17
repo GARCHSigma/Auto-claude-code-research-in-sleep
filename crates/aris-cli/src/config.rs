@@ -289,10 +289,6 @@ impl ArisConfig {
         self.executor_model.as_deref()
     }
 
-    /// Check if we have minimum viable config (at least an executor API key).
-    pub fn has_executor_key(&self) -> bool {
-        self.executor_api_key.as_ref().is_some_and(|k| !k.is_empty())
-    }
 }
 
 /// Interactive setup wizard. Returns the configured settings.
