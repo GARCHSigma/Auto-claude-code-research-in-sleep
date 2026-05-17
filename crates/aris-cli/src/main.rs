@@ -2024,7 +2024,18 @@ impl LiveCli {
                     println!("Skill '{name}' not found.");
                     return Ok(());
                 };
-                let target_dir = dirs_aris_skills().join(name);
+                // Canonicalise the skill name so the export dir and the
+                // BUNDLED_RESOURCES prefix match exactly. find_skill_content
+                // matches bundled names case-insensitively; without this,
+                // `/skills export Research-Wiki` would write SKILL.md but
+                // miss every helper because `skills/Research-Wiki/` ≠
+                // `skills/research-wiki/` in the bundle keys.
+                let canonical_name = runtime::BUNDLED_SKILLS
+                    .iter()
+                    .find(|(n, _)| n.eq_ignore_ascii_case(name))
+                    .map(|(n, _)| (*n).to_string())
+                    .unwrap_or_else(|| name.to_string());
+                let target_dir = dirs_aris_skills().join(&canonical_name);
                 let target_file = target_dir.join("SKILL.md");
                 if target_file.exists() {
                     println!(
@@ -2035,10 +2046,51 @@ impl LiveCli {
                 }
                 fs::create_dir_all(&target_dir)?;
                 fs::write(&target_file, &content)?;
+
+                // v0.4.8: also copy bundled skill-local helpers (`skills/<name>/*`)
+                // into the exported skill dir, preserving subdirectories. Without
+                // this, the exported skill loses access to its bundled helpers
+                // (templates/, tools/, etc.) because the filesystem skill takes
+                // precedence over the bundled one in execute_skill (`tools/src/lib.rs`).
+                // Shared `tools/*` and `shared-references/*` stay in cache and are
+                // accessed via $ARIS_CACHE_DIR by the resolver chain.
+                let skill_prefix = format!("skills/{canonical_name}/");
+                let mut copied = 0usize;
+                let mut failed: Vec<(String, String)> = Vec::new();
+                for (key, body) in runtime::BUNDLED_RESOURCES {
+                    let Some(rel) = key.strip_prefix(&skill_prefix) else {
+                        continue;
+                    };
+                    let dst = target_dir.join(rel);
+                    if dst.exists() {
+                        continue; // user-edited files are preserved
+                    }
+                    if let Some(parent) = dst.parent() {
+                        if let Err(e) = fs::create_dir_all(parent) {
+                            failed.push((key.to_string(), e.to_string()));
+                            continue;
+                        }
+                    }
+                    if let Err(e) = fs::write(&dst, body) {
+                        failed.push((key.to_string(), e.to_string()));
+                        continue;
+                    }
+                    copied += 1;
+                }
+
                 println!(
                     "\x1b[1;32m✓\x1b[0m Exported to {}\n\x1b[2mEdit this file to customize the skill.\x1b[0m",
                     target_file.display()
                 );
+                if copied > 0 {
+                    println!(
+                        "\x1b[2mBundled {copied} helper file(s) into {}\x1b[0m",
+                        target_dir.display()
+                    );
+                }
+                for (key, err) in &failed {
+                    eprintln!("\x1b[33mwarning:\x1b[0m failed to copy {key}: {err}");
+                }
             }
             Some(other) => {
                 println!("Unknown action '{other}'. Use: /skills [list|show <name>|export <name>]");
