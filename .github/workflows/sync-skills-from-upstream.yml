@@ -1,0 +1,37 @@
+name: Sync Skills from Upstream
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'  # Every Monday at 02:00 UTC
+  workflow_dispatch:    # Manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${ secrets.GITHUB_TOKEN }
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/GARCH-QUANT/quant-research-skills.git
+          git fetch upstream main
+
+      - name: Sync skills from upstream
+        run: |
+          git checkout main
+          git pull upstream main --ff-only || echo "Fast-forward failed or no changes"
+
+      - name: Create PR if there are changes
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${ secrets.GITHUB_TOKEN }
+          branch: sync/skills-from-upstream
+          title: "Sync: skills from upstream GARCH-QUANT"
+          body: "Automated weekly sync from GARCH-QUANT/quant-research-skills"
+          base: main
