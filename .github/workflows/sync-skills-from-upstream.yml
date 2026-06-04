@@ -15,7 +15,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${ secrets.GITHUB_TOKEN }
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ssh-strict: false
 
       - name: Add upstream remote
         run: |
@@ -30,7 +31,7 @@ jobs:
       - name: Create PR if there are changes
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${ secrets.GITHUB_TOKEN }
+          token: ${{ secrets.GITHUB_TOKEN }}
           branch: sync/skills-from-upstream
           title: "Sync: skills from upstream GARCH-QUANT"
           body: "Automated weekly sync from GARCH-QUANT/quant-research-skills"
