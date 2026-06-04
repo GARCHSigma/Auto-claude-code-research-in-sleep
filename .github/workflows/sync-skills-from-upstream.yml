@@ -19,7 +19,7 @@ jobs:
 
       - name: Add upstream remote
         run: |
-          git remote add upstream https://github.com/GARCH-QUANT/quant-research-skills.git
+          git remote add upstream https://x-access-token:${GITHUB_TOKEN}@github.com/GARCH-QUANT/quant-research-skills.git
           git fetch upstream main
 
       - name: Sync skills from upstream
